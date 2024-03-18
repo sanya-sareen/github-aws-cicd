@@ -1,15 +1,4 @@
 AWSTemplateFormatVersion: '2010-09-09'
-
-Parameters:
-  GitHubRepositoryUrl:
-    Type: String
-    Description: The URL of the GitHub repository to monitor (e.g., https://github.com/sanya-sareen/github-aws-cicd.git)
-
-  GitHubTokenSecretName:
-    Type: String
-    Description: The name of the AWS Secrets Manager secret containing the GitHub access token
-
-
 Resources:
   CodeBuildServiceRole:
     Type: 'AWS::IAM::Role'
@@ -22,54 +11,55 @@ Resources:
               Service: codebuild.amazonaws.com
             Action: 'sts:AssumeRole'
       Policies:
-        - PolicyName: CodeBuildPolicy
+        - PolicyName: root
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow
+              - Sid: CloudWatchLogsPolicy
+                Effect: Allow
                 Action:
                   - 'logs:CreateLogGroup'
                   - 'logs:CreateLogStream'
                   - 'logs:PutLogEvents'
-                Resource: arn:aws:logs:*:*:*
-              - Effect: Allow
+                Resource: '*'
+              - Sid: S3GetObjectPolicy
+                Effect: Allow
                 Action:
-                  - 'codebuild:StartBuild'
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                Resource: '*'
+              - Sid: S3PutObjectPolicy
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: '*'
+              - Sid: S3BucketIdentity
+                Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
                 Resource: '*'
 
-  CodeBuildSourceCredential:
-    Type: 'AWS::CodeBuild::SourceCredential'
-    Properties:
-      AuthType: 'PERSONAL_ACCESS_TOKEN'
-      ServerType: 'GITHUB'
-      Token: !Sub "{{resolve:secretsmanager:${GitHubTokenSecretName}:SecretString:GITHUB_ACCESS_TOKEN}}"
+
 
   CodeBuildProject:
     Type: 'AWS::CodeBuild::Project'
     Properties:
       Name: !Ref 'AWS::StackName'
-      Description: 'CodeBuild project for building GitHub repository'
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       Source:
-        Type: 'GITHUB'
-        Location: !Ref GitHubRepositoryUrl
+        Type: GITHUB
+        Location: https://github.com/sanya-sareen/github-aws-cicd.git
         BuildSpec: buildspec.yaml
       Artifacts:
-        Type: 'NO_ARTIFACTS'
-      Environment:
-        Type: 'LINUX_CONTAINER'
-        ComputeType: 'BUILD_GENERAL1_SMALL'
-        Image: 'aws/codebuild/standard:5.0'
+        Type: NO_ARTIFACTS
+      Triggers:
+        Webhook: true
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: PUSH
 
-  GitHubWebhook:
-    Type: 'AWS::CodeStarNotifications::NotificationRule'
-    Properties:
-      Name: 'GitHubWebhook'
-      ResourceType: 'Repository'
-      EventTypes:
-        - 'PULL_REQUEST_CREATED'
-        - 'PULL_REQUEST_UPDATED'
-        - 'PUSH'
-      Targets:
-        - TargetAddress: !Ref CodeBuildProject
-          TargetType: 'CodeBuildProject'
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
